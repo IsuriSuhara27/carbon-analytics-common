@@ -14,10 +14,16 @@
  */
 package org.wso2.carbon.event.receiver.core.internal.type.json;
 
+import com.fasterxml.jackson.core.JsonParseException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.google.gson.Gson;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 import com.jayway.jsonpath.InvalidPathException;
 import com.jayway.jsonpath.JsonPath;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.json.JSONArray;
@@ -37,10 +43,8 @@ import org.wso2.carbon.event.receiver.core.exception.InvalidPropertyValueExcepti
 import org.wso2.carbon.event.receiver.core.internal.util.EventReceiverUtil;
 import org.wso2.carbon.event.receiver.core.internal.util.helper.EventReceiverConfigurationHelper;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.io.IOException;
+import java.util.*;
 
 public class JSONInputMapper implements InputMapper {
 
@@ -258,8 +262,8 @@ public class JSONInputMapper implements InputMapper {
                 }
                 if (noPayloadData > 0) {
                     JsonPath jsonPath = JsonPath.compile("$." + EventReceiverConstants.EVENT_PARENT_TAG + "." + EventReceiverConstants.EVENT_PAYLOAD_TAG);
-                    Map<Object, Object> eventMap = null;
-                    eventMap = parseEventToMap(jsonPath, jsonString);
+                    JsonObject jsonObject = jsonPath.read(jsonString);
+                    Map<String, Object> eventMap = jsonObjectToMap(jsonObject);
                     if (eventMap == null) {
                         throw new EventReceiverProcessingException("Missing PayloadData attributes, Event does not match with the stream : " + this.eventReceiverConfiguration.getToStreamName() + ":" + eventReceiverConfiguration.getToStreamVersion());
                     } else {
@@ -288,6 +292,38 @@ public class JSONInputMapper implements InputMapper {
             log.error("Unable to cast the input data to required type, hence dropping the event: " + obj.toString(), e);
             return null;
         }
+    }
+
+    public static Map<String, Object> jsonObjectToMap(JsonObject jsonObject) {
+        Map<String, Object> map = new HashMap<>();
+
+        // Iterate over all the entries in the JsonObject
+        Set<Map.Entry<String, JsonElement>> entrySet = jsonObject.entrySet();
+
+        for (Map.Entry<String, JsonElement> entry : entrySet) {
+            String key = entry.getKey();
+            JsonElement value = entry.getValue();
+
+            // Convert JsonElement to its actual value type (handle different types)
+            if (value.isJsonPrimitive()) {
+                JsonPrimitive primitive = value.getAsJsonPrimitive();
+                if (primitive.isBoolean()) {
+                    map.put(key, primitive.getAsBoolean());
+                } else if (primitive.isNumber()) {
+                    map.put(key, primitive.getAsNumber());
+                } else if (primitive.isString()) {
+                    map.put(key, primitive.getAsString());
+                }
+            } else if (value.isJsonObject()) {
+                map.put(key, jsonObjectToMap(value.getAsJsonObject())); // Recursive call for nested JsonObject
+            } else if (value.isJsonArray()) {
+                map.put(key, value.getAsJsonArray()); // If it's a JsonArray, just add it as is
+            } else {
+                map.put(key, null); // For other types (null, JsonNull, etc.)
+            }
+        }
+
+        return map;
     }
 
 
